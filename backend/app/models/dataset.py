@@ -30,6 +30,9 @@ class Dataset(Base):
     total_rows = Column(Integer, nullable=True)
     total_columns = Column(Integer, nullable=True)
 
+    # AI Data Quality Score (0-100)
+    quality_score = Column(Integer, default=100, nullable=False)
+
     # Dataset Status
     status = Column(
         String(30),
