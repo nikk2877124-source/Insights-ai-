@@ -1,5 +1,6 @@
 from datetime import datetime
-from pydantic import BaseModel
+
+from pydantic import BaseModel, ConfigDict
 
 
 class DatasetResponse(BaseModel):
@@ -11,10 +12,12 @@ class DatasetResponse(BaseModel):
     file_size: int
     total_rows: int | None = None
     total_columns: int | None = None
+    missing_values: int | None = None
+    duplicate_rows: int | None = None
+    null_percentage: float | None = None
     quality_score: int
     status: str
     upload_time: datetime
     uploaded_by: int
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)

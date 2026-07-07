@@ -1,6 +1,8 @@
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, DateTime, Enum as SQLEnum
 import enum
+
+from sqlalchemy import Column, DateTime, Enum as SQLEnum, Integer, String
+from sqlalchemy.orm import relationship
 
 from app.core.database import Base
 
@@ -20,3 +22,5 @@ class User(Base):
     password = Column(String(255), nullable=False)
     role = Column(SQLEnum(UserRole), default=UserRole.USER, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    datasets = relationship("Dataset", back_populates="owner", cascade="all, delete-orphan")

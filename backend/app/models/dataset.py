@@ -1,12 +1,13 @@
 from datetime import datetime
 
 from sqlalchemy import (
+    BigInteger,
     Column,
+    DateTime,
+    Float,
+    ForeignKey,
     Integer,
     String,
-    DateTime,
-    BigInteger,
-    ForeignKey,
 )
 from sqlalchemy.orm import relationship
 
@@ -29,6 +30,11 @@ class Dataset(Base):
     # Dataset Information
     total_rows = Column(Integer, nullable=True)
     total_columns = Column(Integer, nullable=True)
+
+    # Data quality metrics
+    missing_values = Column(Integer, nullable=True)
+    duplicate_rows = Column(Integer, nullable=True)
+    null_percentage = Column(Float, nullable=True)
 
     # AI Data Quality Score (0-100)
     quality_score = Column(Integer, default=100, nullable=False)
