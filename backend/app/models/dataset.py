@@ -65,3 +65,9 @@ class Dataset(Base):
         "User",
         back_populates="datasets"
     )
+
+    profiles = relationship(
+        "DatasetProfile",
+        back_populates="dataset",
+        cascade="all, delete-orphan"
+    )
