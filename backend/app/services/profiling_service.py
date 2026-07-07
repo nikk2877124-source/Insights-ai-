@@ -190,6 +190,180 @@ class ProfilingService:
 
         return {"mixed_type_columns": mixed_type_columns}
 
+    def detect_outliers(self, df: pd.DataFrame) -> dict[str, Any]:
+        """Detect outliers in numeric columns using the IQR rule.
+
+        Values outside the lower and upper IQR bounds are treated as outliers.
+        Empty or constant-value columns return zero outliers safely.
+        """
+        self._validate_dataframe(df)
+
+        numeric_columns = self._get_numeric_columns(df)
+        outlier_summary: dict[str, dict[str, Any]] = {}
+        total_outliers = 0
+
+        for column_name in numeric_columns:
+            numeric_series = pd.to_numeric(df[column_name], errors="coerce").dropna()
+            if numeric_series.empty:
+                outlier_summary[str(column_name)] = {
+                    "outlier_count": 0,
+                    "percentage": 0.0,
+                }
+                continue
+
+            q1 = numeric_series.quantile(0.25)
+            q3 = numeric_series.quantile(0.75)
+            iqr = q3 - q1
+
+            if pd.isna(iqr) or iqr == 0:
+                outlier_summary[str(column_name)] = {
+                    "outlier_count": 0,
+                    "percentage": 0.0,
+                }
+                continue
+
+            lower_bound = q1 - (1.5 * iqr)
+            upper_bound = q3 + (1.5 * iqr)
+            outlier_mask = (numeric_series < lower_bound) | (numeric_series > upper_bound)
+            outlier_count = int(outlier_mask.sum())
+            total_outliers += outlier_count
+            percentage = round((outlier_count / len(numeric_series)) * 100, 2) if len(numeric_series) else 0.0
+
+            outlier_summary[str(column_name)] = {
+                "outlier_count": outlier_count,
+                "percentage": percentage,
+            }
+
+        outlier_summary["total_outliers"] = total_outliers
+        return outlier_summary
+
+    def calculate_quality_score(self, profile: dict[str, Any]) -> dict[str, Any]:
+        """Calculate a simple dataset quality score from profiling metrics."""
+        if not isinstance(profile, dict):
+            raise TypeError("profile must be a dictionary")
+
+        score = 100.0
+        missing_values = profile.get("missing_values", {}).get("columns", {})
+        duplicates = profile.get("duplicates", {})
+        mixed_types = profile.get("mixed_types", {}).get("mixed_type_columns", [])
+        outliers = profile.get("outliers", {})
+        total_columns = profile.get("basic_info", {}).get("total_columns", 0)
+
+        for column_details in missing_values.values():
+            missing_percentage = float(column_details.get("percentage", 0.0))
+            if missing_percentage == 0:
+                continue
+            if 0 < missing_percentage <= 5:
+                score -= 5
+            elif 5 < missing_percentage <= 10:
+                score -= 10
+            elif 10 < missing_percentage <= 20:
+                score -= 20
+            else:
+                score -= 30
+
+        duplicate_percentage = float(duplicates.get("duplicate_percentage", 0.0))
+        if 0 < duplicate_percentage <= 2:
+            score -= 5
+        elif 2 < duplicate_percentage <= 5:
+            score -= 10
+        elif duplicate_percentage > 5:
+            score -= 20
+
+        mixed_count = min(len(mixed_types), 4)
+        score -= mixed_count * 5
+
+        outlier_percentages = [
+            float(column_details.get("percentage", 0.0))
+            for column_details in outliers.values()
+            if isinstance(column_details, dict) and "percentage" in column_details
+        ]
+        if outlier_percentages:
+            max_outlier_percentage = max(outlier_percentages)
+            if 0 < max_outlier_percentage < 1:
+                score -= 0
+            elif 1 <= max_outlier_percentage <= 3:
+                score -= 5
+            elif 3 < max_outlier_percentage <= 5:
+                score -= 10
+            else:
+                score -= 15
+
+        if total_columns and total_columns > 0:
+            object_columns = profile.get("data_types", {}).get("object_columns", [])
+            if len(object_columns) / total_columns > 0.6:
+                score -= 5
+
+        score = max(0.0, min(100.0, round(score, 1)))
+
+        if score >= 90:
+            grade = "A"
+            status = "Excellent"
+        elif score >= 80:
+            grade = "B"
+            status = "Good"
+        elif score >= 70:
+            grade = "C"
+            status = "Fair"
+        elif score >= 60:
+            grade = "D"
+            status = "Poor"
+        else:
+            grade = "F"
+            status = "Critical"
+
+        return {"score": score, "grade": grade, "status": status}
+
+    def generate_dataset_health(self, profile: dict[str, Any]) -> dict[str, Any]:
+        """Create a human-readable health summary for the dataset."""
+        if not isinstance(profile, dict):
+            raise TypeError("profile must be a dictionary")
+
+        major_issues: list[str] = []
+        recommendations: list[str] = []
+
+        missing_columns = [
+            column_name
+            for column_name, details in profile.get("missing_values", {}).get("columns", {}).items()
+            if int(details.get("count", 0)) > 0
+        ]
+        if missing_columns:
+            major_issues.append("Missing values detected in one or more columns")
+            recommendations.append("Fill missing values using column-appropriate strategies")
+
+        duplicate_rows = int(profile.get("duplicates", {}).get("duplicate_rows", 0))
+        if duplicate_rows > 0:
+            major_issues.append("Duplicate rows detected")
+            recommendations.append("Remove duplicate rows")
+
+        mixed_type_columns = profile.get("mixed_types", {}).get("mixed_type_columns", [])
+        if mixed_type_columns:
+            major_issues.append("Mixed datatypes detected in one or more columns")
+            recommendations.append("Standardize mixed-type columns before analysis")
+
+        outlier_details = profile.get("outliers", {})
+        outlier_columns = [
+            column_name
+            for column_name, details in outlier_details.items()
+            if column_name != "total_outliers" and int(details.get("outlier_count", 0)) > 0
+        ]
+        if outlier_columns:
+            major_issues.append("Outliers detected in numeric columns")
+            recommendations.append("Review outlier values before modeling")
+
+        if not major_issues:
+            status = "Good"
+        elif len(major_issues) == 1:
+            status = "Fair"
+        else:
+            status = "Needs Attention"
+
+        return {
+            "status": status,
+            "major_issues": major_issues,
+            "recommendations": recommendations,
+        }
+
     def generate_profile(self, df: pd.DataFrame) -> dict[str, Any]:
         """Build a profiling payload for a dataset.
 
@@ -200,7 +374,7 @@ class ProfilingService:
         """
         self._validate_dataframe(df)
 
-        return {
+        profile = {
             "basic_info": self._build_basic_info(df),
             "missing_values": self.analyze_missing_values(df),
             "duplicates": self.analyze_duplicates(df),
@@ -209,6 +383,11 @@ class ProfilingService:
             "memory_usage": self.analyze_memory(df),
             "mixed_types": self.detect_mixed_types(df),
         }
+
+        profile["outliers"] = self.detect_outliers(df)
+        profile["quality_score"] = self.calculate_quality_score(profile)
+        profile["dataset_health"] = self.generate_dataset_health(profile)
+        return profile
 
     def _build_basic_info(self, df: pd.DataFrame) -> dict[str, Any]:
         """Create the basic profiling section for the dataset."""

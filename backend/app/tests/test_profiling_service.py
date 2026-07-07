@@ -114,3 +114,42 @@ def test_generate_profile_includes_iteration_3_sections():
     assert "statistics" in result
     assert "memory_usage" in result
     assert "mixed_types" in result
+
+
+def test_detect_outliers_counts_values_outside_iqr_bounds():
+    df = pd.DataFrame({"Salary": [100, 110, 120, 130, 1000]})
+
+    result = ProfilingService().detect_outliers(df)
+
+    assert result["Salary"]["outlier_count"] == 1
+    assert result["total_outliers"] == 1
+
+
+def test_calculate_quality_score_returns_grade_and_status():
+    profile = {
+        "missing_values": {"columns": {"Salary": {"percentage": 6.0}}},
+        "duplicates": {"duplicate_percentage": 3.0},
+        "mixed_types": {"mixed_type_columns": ["Name"]},
+        "outliers": {"Salary": {"percentage": 2.0}},
+        "basic_info": {"total_columns": 2},
+        "data_types": {"object_columns": ["Name"]},
+    }
+
+    result = ProfilingService().calculate_quality_score(profile)
+
+    assert result["score"] <= 100
+    assert result["grade"] in {"A", "B", "C", "D", "F"}
+
+
+def test_generate_dataset_health_handles_issues():
+    profile = {
+        "missing_values": {"columns": {"Salary": {"count": 2}}},
+        "duplicates": {"duplicate_rows": 1},
+        "mixed_types": {"mixed_type_columns": ["Age"]},
+        "outliers": {"Salary": {"outlier_count": 1}},
+    }
+
+    result = ProfilingService().generate_dataset_health(profile)
+
+    assert result["status"] in {"Good", "Fair", "Needs Attention"}
+    assert len(result["major_issues"]) >= 1
