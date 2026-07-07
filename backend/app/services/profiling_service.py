@@ -364,30 +364,62 @@ class ProfilingService:
             "recommendations": recommendations,
         }
 
-    def generate_profile(self, df: pd.DataFrame) -> dict[str, Any]:
-        """Build a profiling payload for a dataset.
+    def generate_profile(self, df: pd.DataFrame, dataset_name: str | None = None) -> dict[str, Any]:
+        """Build a compact KPI-style profile plus the richer profiling details.
 
-        The profile includes the existing basic information plus sections for
-        missing values, duplicates, data types, statistics, memory usage, and
-        mixed-type detection. This keeps the output modular and avoids adding
-        more analysis logic to the calling layer.
+        The returned structure is intentionally split into two sections:
+        - summary: a small, frontend-friendly overview for KPI cards.
+        - details: the detailed analysis payload used for deeper inspection.
         """
         self._validate_dataframe(df)
 
+        missing_values = self.analyze_missing_values(df)
+        duplicates = self.analyze_duplicates(df)
+        outliers = self.detect_outliers(df)
+        mixed_types = self.detect_mixed_types(df)
+        data_types = self.analyze_data_types(df)
+        statistics = self.analyze_statistics(df)
+        memory_usage = self.analyze_memory(df)
+
         profile = {
             "basic_info": self._build_basic_info(df),
-            "missing_values": self.analyze_missing_values(df),
-            "duplicates": self.analyze_duplicates(df),
-            "data_types": self.analyze_data_types(df),
-            "statistics": self.analyze_statistics(df),
-            "memory_usage": self.analyze_memory(df),
-            "mixed_types": self.detect_mixed_types(df),
+            "missing_values": missing_values,
+            "duplicates": duplicates,
+            "data_types": data_types,
+            "statistics": statistics,
+            "memory_usage": memory_usage,
+            "mixed_types": mixed_types,
+            "outliers": outliers,
         }
 
-        profile["outliers"] = self.detect_outliers(df)
         profile["quality_score"] = self.calculate_quality_score(profile)
         profile["dataset_health"] = self.generate_dataset_health(profile)
-        return profile
+
+        summary = {
+            "dataset_name": dataset_name or "Unnamed Dataset",
+            "total_rows": int(len(df)),
+            "total_columns": int(len(df.columns)),
+            "missing_values": int(missing_values.get("total_missing_values", 0)),
+            "duplicate_rows": int(duplicates.get("duplicate_rows", 0)),
+            "outlier_count": int(outliers.get("total_outliers", 0)),
+            "quality_score": int(profile["quality_score"].get("score", 0)),
+            "grade": profile["quality_score"].get("grade", "F"),
+            "status": profile["quality_score"].get("status", "Critical"),
+        }
+
+        return {
+            "summary": summary,
+            "details": {
+                "missing_values": missing_values,
+                "duplicates": duplicates,
+                "statistics": statistics,
+                "outliers": outliers,
+                "data_types": data_types,
+                "memory_usage": memory_usage,
+                "mixed_types": mixed_types,
+                "dataset_health": profile["dataset_health"],
+            },
+        }
 
     def _build_basic_info(self, df: pd.DataFrame) -> dict[str, Any]:
         """Create the basic profiling section for the dataset."""

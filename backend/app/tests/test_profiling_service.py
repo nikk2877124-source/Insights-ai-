@@ -34,12 +34,11 @@ def test_generate_profile_includes_missing_and_duplicate_sections():
 
     result = ProfilingService().generate_profile(df)
 
-    assert "basic_info" in result
-    assert "missing_values" in result
-    assert "duplicates" in result
-    assert result["basic_info"]["total_rows"] == 3
-    assert result["missing_values"]["total_missing_values"] == 1
-    assert result["duplicates"]["duplicate_rows"] == 1
+    assert "summary" in result
+    assert "details" in result
+    assert result["summary"]["total_rows"] == 3
+    assert result["summary"]["missing_values"] == 1
+    assert result["summary"]["duplicate_rows"] == 1
 
 
 def test_empty_dataset_is_handled_safely():
@@ -53,7 +52,7 @@ def test_empty_dataset_is_handled_safely():
     assert missing_result["columns"]["City"]["count"] == 0
     assert duplicate_result["duplicate_rows"] == 0
     assert duplicate_result["duplicate_percentage"] == 0.0
-    assert profile_result["basic_info"]["total_rows"] == 0
+    assert profile_result["summary"]["total_rows"] == 0
 
 
 def test_analyze_data_types_classifies_columns():
@@ -110,10 +109,10 @@ def test_generate_profile_includes_iteration_3_sections():
 
     result = ProfilingService().generate_profile(df)
 
-    assert "data_types" in result
-    assert "statistics" in result
-    assert "memory_usage" in result
-    assert "mixed_types" in result
+    assert "statistics" in result["details"]
+    assert "data_types" in result["details"]
+    assert "memory_usage" in result["details"]
+    assert "mixed_types" in result["details"]
 
 
 def test_detect_outliers_counts_values_outside_iqr_bounds():
