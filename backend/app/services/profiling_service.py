@@ -6,9 +6,18 @@ future iterations without rewriting the existing inspection flow.
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
+import numpy as np
 import pandas as pd
+from pandas.api.types import (
+    is_bool_dtype,
+    is_categorical_dtype,
+    is_datetime64_any_dtype,
+    is_numeric_dtype,
+    is_object_dtype,
+)
 
 
 class ProfilingService:
@@ -24,8 +33,7 @@ class ProfilingService:
             A JSON-serializable dictionary containing the aggregate missing value
             count and a per-column breakdown.
         """
-        if not isinstance(df, pd.DataFrame):
-            raise TypeError("df must be a pandas DataFrame")
+        self._validate_dataframe(df)
 
         total_rows = len(df)
         missing_counts = df.isna().sum()
@@ -54,8 +62,7 @@ class ProfilingService:
         Returns:
             A JSON-serializable dictionary with duplicate totals and percentage.
         """
-        if not isinstance(df, pd.DataFrame):
-            raise TypeError("df must be a pandas DataFrame")
+        self._validate_dataframe(df)
 
         total_rows = len(df)
         duplicate_rows = int(df.duplicated().sum())
@@ -66,28 +73,189 @@ class ProfilingService:
             "duplicate_percentage": duplicate_percentage,
         }
 
+    def analyze_data_types(self, df: pd.DataFrame) -> dict[str, Any]:
+        """Classify columns by their inferred data type.
+
+        The method returns the numeric, categorical, boolean, datetime and object
+        columns separately and also provides the raw pandas dtype for each
+        column.
+        """
+        self._validate_dataframe(df)
+
+        numeric_columns: list[str] = []
+        categorical_columns: list[str] = []
+        boolean_columns: list[str] = []
+        datetime_columns: list[str] = []
+        object_columns: list[str] = []
+        column_types: dict[str, str] = {}
+
+        for column_name in df.columns:
+            column = df[column_name]
+            column_name_str = str(column_name)
+            dtype = column.dtype
+            column_types[column_name_str] = str(dtype)
+
+            if is_bool_dtype(dtype):
+                boolean_columns.append(column_name_str)
+            elif is_datetime64_any_dtype(dtype):
+                datetime_columns.append(column_name_str)
+            elif is_numeric_dtype(dtype):
+                numeric_columns.append(column_name_str)
+            elif is_object_dtype(dtype) or is_categorical_dtype(dtype):
+                object_columns.append(column_name_str)
+                categorical_columns.append(column_name_str)
+            else:
+                categorical_columns.append(column_name_str)
+
+        return {
+            "numeric_columns": numeric_columns,
+            "categorical_columns": categorical_columns,
+            "datetime_columns": datetime_columns,
+            "boolean_columns": boolean_columns,
+            "object_columns": object_columns,
+            "column_types": column_types,
+        }
+
+    def analyze_statistics(self, df: pd.DataFrame) -> dict[str, Any]:
+        """Calculate descriptive statistics for numeric columns only.
+
+        Missing values are ignored during the computation. Empty or all-missing
+        numeric columns return zero counts with null statistics to keep the output
+        JSON-safe.
+        """
+        self._validate_dataframe(df)
+
+        numeric_columns = self._get_numeric_columns(df)
+        statistics: dict[str, dict[str, Any]] = {}
+
+        for column_name in numeric_columns:
+            numeric_series = pd.to_numeric(df[column_name], errors="coerce")
+            clean_series = numeric_series.dropna()
+
+            if clean_series.empty:
+                statistics[str(column_name)] = {
+                    "count": 0,
+                    "mean": None,
+                    "median": None,
+                    "min": None,
+                    "max": None,
+                    "std": None,
+                    "variance": None,
+                    "q1": None,
+                    "q3": None,
+                    "iqr": None,
+                }
+                continue
+
+            statistics[str(column_name)] = {
+                "count": int(clean_series.count()),
+                "mean": self._serialize_value(clean_series.mean()),
+                "median": self._serialize_value(clean_series.median()),
+                "min": self._serialize_value(clean_series.min()),
+                "max": self._serialize_value(clean_series.max()),
+                "std": self._serialize_value(clean_series.std()),
+                "variance": self._serialize_value(clean_series.var()),
+                "q1": self._serialize_value(clean_series.quantile(0.25)),
+                "q3": self._serialize_value(clean_series.quantile(0.75)),
+                "iqr": self._serialize_value(clean_series.quantile(0.75) - clean_series.quantile(0.25)),
+            }
+
+        return statistics
+
+    def analyze_memory(self, df: pd.DataFrame) -> dict[str, Any]:
+        """Return the dataset memory footprint in bytes and megabytes."""
+        self._validate_dataframe(df)
+
+        memory_usage_bytes = int(df.memory_usage(index=True, deep=True).sum())
+        memory_usage_mb = round(max(memory_usage_bytes / (1024 * 1024), 0.01), 2)
+
+        return {
+            "memory_usage_mb": memory_usage_mb,
+            "memory_usage_bytes": memory_usage_bytes,
+        }
+
+    def detect_mixed_types(self, df: pd.DataFrame) -> dict[str, Any]:
+        """Find columns that contain more than one normalized Python value type."""
+        self._validate_dataframe(df)
+
+        mixed_type_columns: list[str] = []
+        for column_name in df.columns:
+            unique_types = {
+                self._normalize_value_type(value)
+                for value in df[column_name].dropna()
+                if self._normalize_value_type(value) is not None
+            }
+            if len(unique_types) > 1:
+                mixed_type_columns.append(str(column_name))
+
+        return {"mixed_type_columns": mixed_type_columns}
+
     def generate_profile(self, df: pd.DataFrame) -> dict[str, Any]:
-        """Build a basic profiling payload for a dataset.
+        """Build a profiling payload for a dataset.
 
         The profile includes the existing basic information plus sections for
-        missing values and duplicates. This keeps the output modular and avoids
-        adding more analysis logic to the calling layer.
+        missing values, duplicates, data types, statistics, memory usage, and
+        mixed-type detection. This keeps the output modular and avoids adding
+        more analysis logic to the calling layer.
         """
-        if not isinstance(df, pd.DataFrame):
-            raise TypeError("df must be a pandas DataFrame")
+        self._validate_dataframe(df)
 
         return {
             "basic_info": self._build_basic_info(df),
             "missing_values": self.analyze_missing_values(df),
             "duplicates": self.analyze_duplicates(df),
+            "data_types": self.analyze_data_types(df),
+            "statistics": self.analyze_statistics(df),
+            "memory_usage": self.analyze_memory(df),
+            "mixed_types": self.detect_mixed_types(df),
         }
 
     def _build_basic_info(self, df: pd.DataFrame) -> dict[str, Any]:
         """Create the basic profiling section for the dataset."""
+        memory_usage = self.analyze_memory(df)
         return {
             "total_rows": int(len(df)),
             "total_columns": int(len(df.columns)),
             "column_names": [str(column) for column in df.columns.tolist()],
             "data_types": {str(column): str(dtype) for column, dtype in df.dtypes.items()},
-            "memory_usage": int(df.memory_usage(index=True, deep=True).sum()),
+            "memory_usage": memory_usage["memory_usage_bytes"],
         }
+
+    def _get_numeric_columns(self, df: pd.DataFrame) -> list[str]:
+        """Return the names of numeric columns for the dataset."""
+        return [str(column_name) for column_name in df.columns if is_numeric_dtype(df[column_name].dtype)]
+
+    def _normalize_value_type(self, value: Any) -> str | None:
+        """Normalize a scalar value to a stable type label for mixed-type detection."""
+        if value is None or (isinstance(value, float) and pd.isna(value)):
+            return None
+        if isinstance(value, (bool, np.bool_)):
+            return "boolean"
+        if isinstance(value, (int, np.integer)) and not isinstance(value, (bool, np.bool_)):
+            return "integer"
+        if isinstance(value, (float, np.floating)):
+            return "float"
+        if isinstance(value, (datetime, np.datetime64, pd.Timestamp)):
+            return "datetime"
+        if isinstance(value, str):
+            return "string"
+        if isinstance(value, (list, tuple, dict, set)):
+            return "complex"
+        return type(value).__name__.lower()
+
+    def _serialize_value(self, value: Any) -> Any:
+        """Convert NumPy and pandas scalar values into plain Python types."""
+        if value is None or (isinstance(value, float) and pd.isna(value)):
+            return None
+        if isinstance(value, np.generic):
+            return value.item()
+        if isinstance(value, (pd.Timestamp, datetime)):
+            return value.isoformat()
+        if isinstance(value, np.ndarray):
+            return value.tolist()
+        return value
+
+    def _validate_dataframe(self, df: pd.DataFrame) -> None:
+        """Ensure the input is a pandas DataFrame."""
+        if not isinstance(df, pd.DataFrame):
+            raise TypeError("df must be a pandas DataFrame")

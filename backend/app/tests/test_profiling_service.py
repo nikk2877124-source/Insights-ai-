@@ -54,3 +54,63 @@ def test_empty_dataset_is_handled_safely():
     assert duplicate_result["duplicate_rows"] == 0
     assert duplicate_result["duplicate_percentage"] == 0.0
     assert profile_result["basic_info"]["total_rows"] == 0
+
+
+def test_analyze_data_types_classifies_columns():
+    df = pd.DataFrame(
+        {
+            "Age": [30, 35, 40],
+            "Salary": [1000.0, 2000.0, 3000.0],
+            "Department": ["Sales", "HR", "IT"],
+            "Active": [True, False, True],
+            "JoiningDate": pd.to_datetime(["2020-01-01", "2020-02-01", "2020-03-01"]),
+        }
+    )
+
+    result = ProfilingService().analyze_data_types(df)
+
+    assert "Age" in result["numeric_columns"]
+    assert "Salary" in result["numeric_columns"]
+    assert "Department" in result["categorical_columns"]
+    assert "Active" in result["boolean_columns"]
+    assert "JoiningDate" in result["datetime_columns"]
+    assert result["column_types"]["Age"] == "int64"
+
+
+def test_analyze_statistics_uses_numeric_columns_only():
+    df = pd.DataFrame({"Age": [10, 20, 30, None], "Name": ["A", "B", "C", "D"]})
+
+    result = ProfilingService().analyze_statistics(df)
+
+    assert "Age" in result
+    assert "Name" not in result
+    assert result["Age"]["count"] == 3
+    assert result["Age"]["mean"] == 20.0
+
+
+def test_analyze_memory_returns_bytes_and_mb():
+    df = pd.DataFrame({"A": [1, 2, 3], "B": [1.5, 2.5, 3.5]})
+
+    result = ProfilingService().analyze_memory(df)
+
+    assert result["memory_usage_bytes"] > 0
+    assert result["memory_usage_mb"] > 0
+
+
+def test_detect_mixed_types_finds_mixed_value_columns():
+    df = pd.DataFrame({"Age": [10, 12, "Unknown"]})
+
+    result = ProfilingService().detect_mixed_types(df)
+
+    assert result["mixed_type_columns"] == ["Age"]
+
+
+def test_generate_profile_includes_iteration_3_sections():
+    df = pd.DataFrame({"Age": [10, 20, 30], "Name": ["A", "B", "C"]})
+
+    result = ProfilingService().generate_profile(df)
+
+    assert "data_types" in result
+    assert "statistics" in result
+    assert "memory_usage" in result
+    assert "mixed_types" in result
