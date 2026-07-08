@@ -199,10 +199,55 @@ class AIService:
 
         return self.ollama.generate(prompt)
 
+    def chat_with_dataset(self, question: str, dataset_profile: dict) -> str:
+        """Answer a user question using ONLY the dataset profile metadata.
+
+        If the question requires dataset contents rather than metadata, respond with:
+        "That information requires analyzing the dataset contents."
+        """
+        if not isinstance(question, str) or not question.strip():
+            raise ValueError("question must be a non-empty string")
+        if not isinstance(dataset_profile, dict):
+            raise ValueError("dataset_profile must be a dict")
+
+        prompt = (
+            "You are an AI assistant inside InsightAI.\n\n"
+            "You must answer the user's question using ONLY the provided DATASET PROFILE (metadata).\n"
+            "Do NOT guess. Do NOT use outside knowledge.\n"
+            "If the question requires dataset contents (actual data values/rows), you MUST respond with exactly:\n"
+            'That information requires analyzing the dataset contents.\n\n'
+            "OUTPUT REQUIREMENTS:\n"
+            "- Plain text only (no markdown).\n\n"
+            "DATASET PROFILE JSON:\n"
+            f"{json.dumps(dataset_profile, ensure_ascii=False, indent=2)}\n\n"
+            "USER QUESTION:\n"
+            f"{question}\n"
+        )
+
+        raw = self.ollama.generate(prompt)
+        raw = raw.strip() if isinstance(raw, str) else ""
+
+        refusal = "That information requires analyzing the dataset contents."
+        if not raw:
+            return refusal
+
+        lowered = raw.lower()
+        if "analyzing the dataset contents" in lowered or "dataset contents" in lowered:
+            return refusal
+
+        # Heuristic: if the model starts referencing row/values/examples, force the exact refusal.
+        content_markers = ["row", "rows", "value", "values", "column values", "examples", "sample"]
+        if any(m in lowered for m in content_markers):
+            return refusal
+
+        return raw
+
     def generate_cleaning_recommendations(self, profile: dict) -> str:
         """Generate prioritized cleaning recommendations from a dataset profile."""
         if not isinstance(profile, dict):
             raise TypeError("profile must be a dictionary")
+
+
 
         summary = profile.get("summary") if isinstance(profile.get("summary"), dict) else profile
 

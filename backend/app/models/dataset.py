@@ -77,3 +77,10 @@ class Dataset(Base):
         back_populates="dataset",
         cascade="all, delete-orphan"
     )
+
+    chat_history = relationship(
+        "ChatHistory",
+        back_populates="dataset",
+        cascade="all, delete-orphan",
+    )
+

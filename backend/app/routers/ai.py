@@ -13,12 +13,17 @@ from app.schemas.cleaning_prompt_interpretation import (
     InterpretCleaningPromptRequest,
     InterpretCleaningPromptResponse,
 )
+from app.schemas.ai_chat import ChatRequest, ChatResponse, ChatHistoryResponse
 
 from app.services.ai_services import AIService
+from app.services.chat_service import ChatService
+
 from app.services.dataset_services import get_latest_dataset_profile, get_user_dataset
 
 
 router = APIRouter(prefix="/ai", tags=["AI"])
+
+
 
 ai_service = AIService()
 
@@ -105,6 +110,7 @@ def interpret_prompt(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+
     """Interpret a natural-language cleaning prompt into structured operations.
 
     No cleaning is executed here.
@@ -137,4 +143,63 @@ def interpret_prompt(
             operations=[],
             errors=["Failed to interpret prompt"],
         )
+
+
+@router.post("/chat", response_model=ChatResponse)
+def chat(
+    payload: ChatRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Ask a question using ONLY dataset profile metadata and store the conversation."""
+    try:
+        chat_service = ChatService()
+        item = chat_service.chat(
+            db,
+            dataset_id=payload.dataset_id,
+            user=current_user,
+            question=payload.question,
+        )
+        return ChatResponse(answer=item.answer)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to process chat request",
+        ) from exc
+
+
+@router.get("/chat/history/{dataset_id}", response_model=ChatHistoryResponse)
+def chat_history(
+    dataset_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Retrieve stored chat history for a dataset (ownership verified)."""
+    # Ownership verification (requirement #5)
+    get_user_dataset(db, dataset_id, current_user.id)
+
+    chat_service = ChatService()
+    history = chat_service.retrieve_history(
+        db,
+        dataset_id=dataset_id,
+        user_id=current_user.id,
+        limit=None,
+    )
+
+    return ChatHistoryResponse(
+        history=[
+            {
+                "id": h.id,
+                "dataset_id": h.dataset_id,
+                "user_id": h.user_id,
+                "question": h.question,
+                "answer": h.answer,
+                "created_at": h.created_at,
+            }
+            for h in history
+        ]
+    )
+
 
