@@ -24,3 +24,9 @@ class User(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     datasets = relationship("Dataset", back_populates="owner", cascade="all, delete-orphan")
+
+    cleaning_sessions = relationship(
+        "CleaningSession",
+        back_populates="user",
+        cascade="all, delete-orphan"
+    )

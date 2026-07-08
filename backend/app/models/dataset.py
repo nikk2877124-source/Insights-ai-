@@ -71,3 +71,9 @@ class Dataset(Base):
         back_populates="dataset",
         cascade="all, delete-orphan"
     )
+
+    cleaning_sessions = relationship(
+        "CleaningSession",
+        back_populates="dataset",
+        cascade="all, delete-orphan"
+    )
