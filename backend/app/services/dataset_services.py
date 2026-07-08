@@ -8,6 +8,8 @@ from sqlalchemy.orm import Session
 
 from app.models.dataset import Dataset
 from app.utils.file_handler import save_file
+from app.models.dataset_profile import DatasetProfile
+
 
 
 def upload_dataset(db: Session, file, user_id: int) -> Dataset:
@@ -102,6 +104,25 @@ def delete_user_dataset(db: Session, dataset_id: int, user_id: int) -> None:
 
     if file_path.exists():
         file_path.unlink(missing_ok=True)
+
+
+def get_latest_dataset_profile(db: Session, dataset_id: int) -> DatasetProfile:
+    """Return the latest DatasetProfile for a dataset (by version, then created_at)."""
+    profile = (
+        db.query(DatasetProfile)
+        .filter(DatasetProfile.dataset_id == dataset_id)
+        .order_by(DatasetProfile.profile_version.desc(), DatasetProfile.created_at.desc())
+        .first()
+    )
+
+    if profile is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Dataset profile not found",
+        )
+
+    return profile
+
 
 
 def download_user_dataset(db: Session, dataset_id: int, user_id: int):
