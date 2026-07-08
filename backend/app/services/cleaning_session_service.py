@@ -21,8 +21,10 @@ from sqlalchemy.orm import Session
 
 from app.models.cleaning_session import CleaningSession
 from app.models.dataset import Dataset
-from app.core.config import settings
 from app.services.cleaning_service import CleaningService
+from app.services.prompt_parser import PromptParser
+
+
 
 
 def _load_dataset_dataframe(dataset: Dataset) -> pd.DataFrame:
@@ -63,7 +65,12 @@ def _compute_quality(df: pd.DataFrame) -> float:
     return float(max(0, min(100, score)))
 
 
-def _apply_operation(df: pd.DataFrame, operation: str, prompt: str) -> tuple[pd.DataFrame, dict[str, Any]]:
+def _apply_operation(
+    df: pd.DataFrame,
+    operation: dict[str, Any],
+    prompt: str | None = None,
+) -> tuple[pd.DataFrame, dict[str, Any]]:
+
     """Apply a cleaning operation.
 
     The prompt currently serves as metadata stored into CleaningSession.
@@ -100,7 +107,8 @@ def _apply_operation(df: pd.DataFrame, operation: str, prompt: str) -> tuple[pd.
         # Heuristic: look for "column=<name>" in prompt.
         import re
 
-        match = re.search(r"column\s*=\s*([^\n\r]+)", prompt, flags=re.IGNORECASE)
+        prompt_text = prompt or ""
+        match = re.search(r"column\s*=\s*([^\n\r]+)", prompt_text, flags=re.IGNORECASE)
         if match:
             target_column = match.group(1).strip()
         else:
@@ -147,26 +155,14 @@ def start_cleaning_session(
     original_df = _load_dataset_dataframe(dataset)
     quality_before = _compute_quality(original_df)
 
-    # Operation is treated as a coarse category, but we store it.
-    # For now we derive operation from prompt heuristics.
-    op = ""
-    prompt_lower = (prompt or "").lower()
-    if "duplicate" in prompt_lower:
-        op = "remove_duplicates"
-    elif "drop" in prompt_lower and "missing" in prompt_lower:
-        op = "drop_missing_rows"
-    elif "trim" in prompt_lower:
-        op = "trim_whitespace"
-    elif "standard" in prompt_lower or "standardize" in prompt_lower:
-        op = "standardize_text"
-    elif "median" in prompt_lower:
-        op = "fill_missing_median"
-    elif "mode" in prompt_lower:
-        op = "fill_missing_mode"
-    elif "mean" in prompt_lower:
-        op = "fill_missing_mean"
-    else:
-        op = "remove_duplicates"
+    # Parse prompt into a structured operation descriptor.
+    parser = PromptParser()
+    try:
+        parsed = parser.parse(prompt)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    op = parsed["operation"]
 
     try:
         cleaned_df, metadata = _apply_operation(original_df, op, prompt)
@@ -179,6 +175,7 @@ def start_cleaning_session(
         ) from exc
 
     quality_after = _compute_quality(cleaned_df)
+
 
     # Persist cleaned dataset
     cleaned_folder = Path(__file__).resolve().parents[2] / "datasets" / "cleaned"
@@ -233,4 +230,5 @@ def list_user_cleaning_history(db: Session, *, user_id: int) -> list[CleaningSes
         .order_by(CleaningSession.created_at.desc())
         .all()
     )
+
 
