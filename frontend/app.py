@@ -1,9 +1,10 @@
 import streamlit as st
 
-from frontend.components.navbar import render_navbar
-from frontend.components.sidebar import render_sidebar
-from frontend.utils.auth import require_auth
-from frontend.utils.session import get_session_user, init_session_state
+from .components.navbar import render_navbar
+from .components.sidebar import render_sidebar
+from .utils.auth import require_auth
+from .utils.session import get_session_user, init_session_state
+
 
 
 st.set_page_config(

@@ -3,6 +3,7 @@ from fastapi.openapi.utils import get_openapi
 
 from app.routers import auth, dataset, cleaning
 from app.routers import ai
+from app.routers import comparison
 
 app = FastAPI(
     title="InsightAI API",
@@ -42,4 +43,5 @@ app.include_router(auth.router)
 app.include_router(dataset.router)
 app.include_router(cleaning.router)
 app.include_router(ai.router)
+app.include_router(comparison.router)
 

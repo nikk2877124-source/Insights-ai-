@@ -23,6 +23,8 @@ from app.models.cleaning_session import CleaningSession
 from app.models.dataset import Dataset
 from app.services.cleaning_service import CleaningService
 from app.services.prompt_parser import PromptParser
+from app.services.profiling_service import ProfilingService
+
 
 
 def _load_dataset_dataframe(dataset: Dataset) -> pd.DataFrame:
@@ -210,6 +212,42 @@ def start_cleaning_session(
     db.add(session)
     db.commit()
     db.refresh(session)
+
+    # Regenerate and persist DatasetProfile after cleaning so downstream AI uses cleaned stats.
+    try:
+        profiler = ProfilingService()
+        profile_payload = profiler.generate_profile(cleaned_df, dataset_name=str(dataset.filename))
+
+        # Version bump: compute the next profile_version safely.
+        from sqlalchemy import func
+        from app.models.dataset_profile import DatasetProfile
+
+
+        max_version = (
+            db.query(func.max(DatasetProfile.profile_version))
+            .filter(DatasetProfile.dataset_id == dataset.id)
+            .scalar()
+        )
+        next_version = int(max_version or 0) + 1
+
+        new_profile = DatasetProfile(
+            dataset_id=dataset.id,
+            profile_version=next_version,
+            total_rows=int(len(cleaned_df)),
+            total_columns=int(len(cleaned_df.columns)),
+            quality_score=float(session.quality_after or 0.0),
+            profile_json=profile_payload,
+            ai_summary=None,
+        )
+        db.add(new_profile)
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to regenerate dataset profile after cleaning: {exc}",
+        ) from exc
+
     return session
 
 

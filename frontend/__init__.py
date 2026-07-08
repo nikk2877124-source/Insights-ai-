@@ -1,0 +1,2 @@
+"""InsightAI frontend package."""
+

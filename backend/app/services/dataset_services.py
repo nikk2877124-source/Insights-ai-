@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.models.dataset import Dataset
 from app.utils.file_handler import save_file
 from app.models.dataset_profile import DatasetProfile
+from app.services.profiling_service import ProfilingService
 
 
 
@@ -70,6 +71,30 @@ def upload_dataset(db: Session, file, user_id: int) -> Dataset:
         if file_path.exists():
             file_path.unlink(missing_ok=True)
         raise
+
+    # Persist DatasetProfile immediately after upload so AI endpoints can work.
+    try:
+        profiler = ProfilingService()
+        profile_payload = profiler.generate_profile(dataframe, dataset_name=str(file_info.get("original_filename") or dataset.filename))
+
+        dataset_profile = DatasetProfile(
+            dataset_id=dataset.id,
+            profile_version=1,
+            total_rows=dataset.total_rows,
+            total_columns=dataset.total_columns,
+            quality_score=float(dataset.quality_score or 0.0),
+            profile_json=profile_payload,
+            ai_summary=None,
+        )
+        db.add(dataset_profile)
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        # If profiling fails, keep the dataset upload intact but surface an error.
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to generate dataset profile: {exc}",
+        ) from exc
 
     return dataset
 

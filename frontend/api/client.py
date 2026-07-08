@@ -124,13 +124,13 @@ class APIClient:
         )
         return data.get("summary", "")
 
-    def get_cleaning_recommendations(self, dataset_id: int) -> list[str]:
+    def get_cleaning_recommendations(self, dataset_id: int) -> str:
         data = self._request(
             "POST",
             "/ai/cleaning-recommendations",
             json={"dataset_id": dataset_id},
         )
-        return data.get("recommendations", [])
+        return data.get("recommendations", "")
 
     def interpret_cleaning_prompt(self, dataset_id: int, prompt: str) -> dict[str, Any]:
         return self._request(
