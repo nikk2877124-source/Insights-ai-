@@ -43,5 +43,4 @@ app.include_router(auth.router)
 app.include_router(dataset.router)
 app.include_router(cleaning.router)
 app.include_router(ai.router)
-app.include_router(comparison.router)
 
