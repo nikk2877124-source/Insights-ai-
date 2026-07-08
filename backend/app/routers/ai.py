@@ -4,7 +4,13 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.security import get_current_user
 from app.models.user import User
-from app.schemas.ai import DatasetSummaryRequest, DatasetSummaryResponse
+from app.schemas.ai import (
+    BusinessInsightsRequest,
+    BusinessInsightsResponse,
+    DatasetSummaryRequest,
+    DatasetSummaryResponse,
+)
+
 from app.schemas.cleaning_ai import (
     CleaningRecommendationsRequest,
     CleaningRecommendationsResponse,
@@ -16,9 +22,15 @@ from app.schemas.cleaning_prompt_interpretation import (
 from app.schemas.ai_chat import ChatRequest, ChatResponse, ChatHistoryResponse
 
 from app.services.ai_services import AIService
+
+# BusinessInsightsService is a higher-level orchestration that builds
+# an LLM prompt from metadata/summary statistics only.
+
 from app.services.chat_service import ChatService
 
+from app.services.business_insight_service import BusinessInsightService
 from app.services.dataset_services import get_latest_dataset_profile, get_user_dataset
+
 
 
 router = APIRouter(prefix="/ai", tags=["AI"])
@@ -26,6 +38,8 @@ router = APIRouter(prefix="/ai", tags=["AI"])
 
 
 ai_service = AIService()
+business_insight_service = BusinessInsightService(ai_service=ai_service)
+
 
 
 @router.get("/test")
@@ -167,6 +181,61 @@ def chat(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to process chat request",
+        ) from exc
+
+
+@router.post(
+    "/business-insights",
+    response_model=BusinessInsightsResponse,
+)
+def business_insights(
+    payload: BusinessInsightsRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Generate AI business insights (metadata-only) for a dataset."""
+    try:
+        # Verify dataset ownership (requirement #1)
+        dataset = get_user_dataset(db, payload.dataset_id, current_user.id)
+        latest_profile = get_latest_dataset_profile(db, dataset.id)
+
+        profile_json = latest_profile.profile_json or {}
+        if not isinstance(profile_json, dict):
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Invalid dataset profile payload",
+            )
+
+        # Only use metadata/summary statistics.
+        summary_statistics: dict[str, object] = {}
+        summary = profile_json.get("summary")
+        if isinstance(summary, dict):
+            # keep small KPI-like metrics only
+            for k in (
+                "total_rows",
+                "total_columns",
+                "missing_values",
+                "duplicate_rows",
+                "outlier_count",
+                "quality_score",
+                "grade",
+                "status",
+            ):
+                if k in summary:
+                    summary_statistics[k] = summary.get(k)
+
+        insights = business_insight_service.generate_business_insights(
+            dataset_profile=profile_json,
+            summary_statistics=summary_statistics,
+        )
+
+        return BusinessInsightsResponse(success=True, insights=insights)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to generate business insights",
         ) from exc
 
 
