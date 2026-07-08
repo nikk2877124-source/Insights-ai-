@@ -5,6 +5,15 @@ from app.core.database import get_db
 from app.core.security import get_current_user
 from app.models.user import User
 from app.schemas.ai import DatasetSummaryRequest, DatasetSummaryResponse
+from app.schemas.cleaning_ai import (
+    CleaningRecommendationsRequest,
+    CleaningRecommendationsResponse,
+)
+from app.schemas.cleaning_prompt_interpretation import (
+    InterpretCleaningPromptRequest,
+    InterpretCleaningPromptResponse,
+)
+
 from app.services.ai_services import AIService
 from app.services.dataset_services import get_latest_dataset_profile, get_user_dataset
 
@@ -52,3 +61,80 @@ def dataset_summary(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to generate dataset summary",
         ) from exc
+
+
+@router.post(
+    "/cleaning-recommendations",
+    response_model=CleaningRecommendationsResponse,
+)
+def cleaning_recommendations(
+
+    payload: CleaningRecommendationsRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Generate prioritized cleaning recommendations from the latest dataset profile."""
+    try:
+        dataset = get_user_dataset(db, payload.dataset_id, current_user.id)
+        latest_profile = get_latest_dataset_profile(db, dataset.id)
+
+        profile_json = latest_profile.profile_json or {}
+        if not isinstance(profile_json, dict):
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Invalid dataset profile payload",
+            )
+
+        recommendations = ai_service.generate_cleaning_recommendations(profile_json)
+        return CleaningRecommendationsResponse(recommendations=recommendations)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to generate cleaning recommendations",
+        ) from exc
+
+
+@router.post(
+    "/interpret-prompt",
+    response_model=InterpretCleaningPromptResponse,
+)
+def interpret_prompt(
+    payload: InterpretCleaningPromptRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Interpret a natural-language cleaning prompt into structured operations.
+
+    No cleaning is executed here.
+    """
+    try:
+        dataset = get_user_dataset(db, payload.dataset_id, current_user.id)
+        latest_profile = get_latest_dataset_profile(db, dataset.id)
+
+        profile_json = latest_profile.profile_json or {}
+        if not isinstance(profile_json, dict):
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Invalid dataset profile payload",
+            )
+
+        result = ai_service.interpret_cleaning_prompt(
+            prompt=payload.prompt,
+            dataset_profile=profile_json,
+        )
+
+        # Graceful behavior: always return shape required by schema.
+        # If LLM returned invalid JSON or validation failed, interpret_cleaning_prompt
+        # returns success=False + operations=[].
+        return InterpretCleaningPromptResponse(**result)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        return InterpretCleaningPromptResponse(
+            success=False,
+            operations=[],
+            errors=["Failed to interpret prompt"],
+        )
+
