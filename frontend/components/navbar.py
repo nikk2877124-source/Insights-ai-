@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from html import escape
 from typing import Any, Optional
 
 import streamlit as st
@@ -12,31 +13,30 @@ def render_navbar(user: Optional[dict[str, Any]]) -> None:
     if user:
         username = user.get("full_name") or user.get("email") or "User"
 
-    st.markdown(
+    user_block = ""
+    if username:
+        safe_name = escape(str(username))
+        user_block = f"""
+            <div class="user-chip">
+                <div class="user-avatar">{escape(safe_name[:1].upper())}</div>
+                <div class="user-meta">
+                    <div class="user-name">{safe_name}</div>
+                    <div class="user-sub">JWT authenticated</div>
+                </div>
+            </div>
         """
+
+    st.markdown(
+        f"""
         <div class="topbar">
             <div class="brand">
-                <div class="brand-logo">✨</div>
+                <div class="brand-logo">IA</div>
                 <div class="brand-name">InsightAI</div>
             </div>
             <div class="topbar-right">
                 {user_block}
             </div>
         </div>
-        """.format(
-            user_block=(
-                f"""
-                <div class="user-chip">
-                    <div class="user-avatar">{username[:1] if username else 'U'}</div>
-                    <div class="user-meta">
-                        <div class="user-name">{username}</div>
-                        <div class="user-sub">JWT authenticated</div>
-                    </div>
-                </div>
-                """
-            )
-            if username
-            else ""
-        ),
+        """,
         unsafe_allow_html=True,
     )

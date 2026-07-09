@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Any, Optional
 
 import requests
+from requests import exceptions as request_exceptions
 
 
 @dataclass
@@ -56,7 +57,18 @@ class APIClient:
         url = f"{self.base_url}{path}"
         kwargs.setdefault("timeout", self.timeout_s)
 
-        resp = self.session.request(method, url, **kwargs)
+        try:
+            resp = self.session.request(method, url, **kwargs)
+        except request_exceptions.Timeout as exc:
+            raise APIError(status_code=0, detail="The backend request timed out. Please try again.") from exc
+        except request_exceptions.ConnectionError as exc:
+            raise APIError(
+                status_code=0,
+                detail="The FastAPI backend is unavailable. Start it with: python -m uvicorn app.main:app --reload",
+            ) from exc
+        except request_exceptions.RequestException as exc:
+            raise APIError(status_code=0, detail=f"Unable to reach the backend: {exc}") from exc
+
         if 200 <= resp.status_code < 300:
             if resp.headers.get("content-type", "").startswith("application/json"):
                 return resp.json()
@@ -109,6 +121,9 @@ class APIClient:
     def get_dataset(self, dataset_id: int) -> dict[str, Any]:
         return self._request("GET", f"/datasets/{dataset_id}")
 
+    def get_dataset_profile(self, dataset_id: int) -> dict[str, Any]:
+        return self._request("GET", f"/datasets/{dataset_id}/profile")
+
     def download_dataset(self, dataset_id: int) -> bytes:
         # For downloading, return bytes (caller decides file name)
         return self._request("GET", f"/datasets/{dataset_id}/download")
@@ -149,10 +164,8 @@ class APIClient:
     def get_cleaning_history(self) -> list[dict[str, Any]]:
         return self._request("GET", "/cleaning/history")
 
-    def get_comparison(self, dataset_id: int) -> dict[str, Any]:
-        # No explicit /comparison endpoint in the current backend routers.
-        # Comparison UI will be built using cleaning session results and downloads.
-        raise APIError(501, "Comparison endpoint is not implemented in backend")
+    def get_comparison(self, session_id: int) -> dict[str, Any]:
+        return self._request("GET", f"/comparison/session/{session_id}")
 
     def get_business_insights(self, dataset_id: int) -> str:
         data = self._request(

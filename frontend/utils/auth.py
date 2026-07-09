@@ -4,9 +4,9 @@ from typing import Optional
 
 import streamlit as st
 
-from frontend.api.client import APIClient, APIError
-from frontend.utils.config import get_base_url
-from frontend.utils.session import get_token, set_token, set_user
+from api.client import APIClient, APIError
+from utils.config import get_base_url
+from utils.session import get_token, set_token, set_user
 
 
 def require_auth(allow_login: bool = False) -> None:

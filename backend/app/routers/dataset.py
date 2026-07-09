@@ -6,9 +6,11 @@ from app.core.database import get_db
 from app.core.security import get_current_user
 from app.models.user import User
 from app.schemas.dataset import DatasetResponse
+from app.schemas.profile import ProfileResponse
 from app.services.dataset_services import (
     delete_user_dataset,
     download_user_dataset,
+    get_latest_dataset_profile,
     get_user_dataset,
     list_user_datasets,
     upload_dataset,
@@ -44,6 +46,17 @@ def get_dataset(
 ):
     """Return a single dataset when it belongs to the current user."""
     return get_user_dataset(db, dataset_id, current_user.id)
+
+
+@router.get("/{dataset_id}/profile", response_model=ProfileResponse)
+def get_dataset_profile(
+    dataset_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Return the latest generated profile for a user-owned dataset."""
+    dataset = get_user_dataset(db, dataset_id, current_user.id)
+    return get_latest_dataset_profile(db, dataset.id)
 
 
 @router.delete("/{dataset_id}", status_code=status.HTTP_204_NO_CONTENT)
